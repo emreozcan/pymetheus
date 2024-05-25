@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import NewType, Literal, TypeAlias, Union
 
 CslName = NewType("CslName", str)
@@ -515,8 +516,55 @@ def zotero_creator_type_to(name: ZoteroCreatorTypeName, to: DataFormat) -> str:
 
 
 def is_field_date(name: ZoteroFieldName) -> bool:
-    return FIELD_ZOTERO_CSL[name] in ["accessed", "issued", "submitted"]
+    return FIELD_ZOTERO_CSL[name] in [
+        "accessed",
+        "issued",
+        "submitted",
+    ]
 
 
-def is_field_text(name: ZoteroFieldName) -> bool:
-    return FIELD_ZOTERO_CSL[name] not in ["accessed", "issued", "submitted"]
+def is_field_name(name: ZoteroFieldName) -> bool:
+    return FIELD_ZOTERO_CSL[name] in [
+        "author",
+        "collection-editor",
+        "composer",
+        "container-author",
+        "contributor",
+        "director",
+        "editor",
+        "guest",
+        "interviewer",
+        "performer",
+        "producer",
+        "recipient",
+        "reviewed-author",
+        "script-writer",
+        "translator",
+    ]
+
+
+def is_field_standard(name: ZoteroFieldName) -> bool:
+    return not is_field_name(name) and not is_field_date(name)
+
+
+class FieldType(Enum):
+    STANDARD = "standard"
+    DATE = "date"
+    NAME = "name"
+
+
+def get_field_type(name: ZoteroFieldName) -> FieldType:
+    if is_field_date(name):
+        return FieldType.DATE
+    elif is_field_name(name):
+        return FieldType.NAME
+    elif is_field_standard(name):
+        return FieldType.STANDARD
+    else:
+        raise ValueError(f"Unknown field type for Zotero field {name}")
+
+
+FIELD_TYPES: dict[ZoteroFieldName, FieldType] = {
+    f: get_field_type(f)
+    for f in FIELD_ZOTERO_CSL.keys()
+}

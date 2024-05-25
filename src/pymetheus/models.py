@@ -1,15 +1,21 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeAlias, Protocol, TypedDict, NotRequired, Literal
+from typing import TypeAlias, Protocol, TypedDict, NotRequired, Literal, \
+    NamedTuple
 
 from .zotero_csl_interop import ZoteroItemTypeName, ZoteroFieldName, \
     ZoteroCreatorTypeName, ZoteroName
 
 
+class Field(NamedTuple):
+    name: ZoteroFieldName
+    base_field: ZoteroFieldName
+
+
 @dataclass(slots=True, frozen=True)
 class ItemType:
     name: ZoteroItemTypeName
-    fields: list[tuple[ZoteroFieldName, ZoteroFieldName]]
+    fields: list[Field]
     creator_types: list[ZoteroCreatorTypeName]
 
 
@@ -2757,9 +2763,11 @@ for sch_item_type in SCHEMA_ITEM_TYPES:
     name = ZoteroItemTypeName(sch_item_type["itemType"])
 
     fields = [
-        (
-            ZoteroFieldName(sch_field["field"]),
-            ZoteroFieldName(sch_field.get("baseField", sch_field["field"]))
+        Field(
+            name=ZoteroFieldName(sch_field["field"]),
+            base_field=ZoteroFieldName(
+                sch_field.get("baseField", sch_field["field"])
+            )
         )
         for sch_field in sch_item_type["fields"]
     ]

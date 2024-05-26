@@ -17,6 +17,7 @@ from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import Header, Footer, DataTable, Label, Button, Tree, \
     Placeholder, Static, Input
+from textual.widgets._tree import TreeNode
 
 from .models_pymetheus import Item
 from .zotero_csl_interop import ITEM_TYPE_NAMES, FIELD_NAMES, CREATOR_TYPE_NAMES
@@ -49,6 +50,8 @@ class CollectionsPanel(Tree):
         Binding("delete", "delete_coll", "Delete"),
     ]
 
+    selected_node: reactive[TreeNode | None] = reactive(None)
+
     class Selected(Message):
         """Sent when the selected collection changes"""
         def __init__(self, _id: str | None, /):
@@ -58,6 +61,7 @@ class CollectionsPanel(Tree):
     @on(Tree.NodeSelected)
     def on_collection_selected(self, event: Tree.NodeSelected) -> None:
         event.stop()
+        self.selected_node = event.node
         self.post_message(self.Selected(event.node.data))
 
     @on(Tree.NodeCollapsed)
@@ -66,6 +70,7 @@ class CollectionsPanel(Tree):
         if event.node == self.root:
             self.root.expand()
             self.select_node(self.root)
+            self.post_message(self.Selected(self.root.data))
 
     def __init__(self, db_connection: sqlite3.Connection):
         super().__init__(label="My Library", data=None, id="collections-tree")
@@ -80,6 +85,28 @@ class CollectionsPanel(Tree):
             self.root.add_leaf(col_name, data=col_name)
         cur.close()
         self.root.expand()
+        self.select_node(self.root)
+        self.post_message(self.Selected(self.root.data))
+
+    def action_delete_coll(self):
+        node: TreeNode = self.selected_node
+        if node.data is None:
+            return
+
+        cur = self.db_connection.cursor()
+        cur.execute(
+            """
+                delete from collection
+                where name = ?
+            """,
+            (node.data, )
+        )
+        self.db_connection.commit()
+        cur.close()
+        node.remove()
+        self.root.expand()
+        self.select_node(self.root)
+        self.post_message(self.Selected(self.root.data))
 
 
 class ItemsPanel(Static):

@@ -4,6 +4,7 @@
     & .modal-dialog {
         layout: grid;
         grid-size: 1;
+        grid-gutter: 2 0;
         grid-rows: auto 1fr auto;
 
         border: thick $background 80%;

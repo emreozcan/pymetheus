@@ -16,8 +16,9 @@ from textual.reactive import reactive
 from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import Header, Footer, DataTable, Label, Button, Tree, \
-    Placeholder, Static, Input, Checkbox
+    Placeholder, Static, Input, Checkbox, OptionList
 from textual.widgets._data_table import RowKey
+from textual.widgets._option_list import Option
 from textual.widgets._tree import TreeNode
 
 from .models_pymetheus import Item
@@ -269,6 +270,47 @@ class ItemCollectionScreen(ModalScreen):
             self.dismiss()
 
 
+class ItemTypeSelectionScreen(ModalScreen[str | None]):
+    def __init__(self):
+        super().__init__(classes="modal-screen")
+
+    selected_type: reactive[str | None] = reactive(None)
+
+    @on(OptionList.OptionHighlighted)
+    def highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        event.stop()
+        self.selected_type = event.option.id
+
+    @on(OptionList.OptionSelected)
+    def selected(self, event: OptionList.OptionSelected) -> None:
+        event.stop()
+        self.selected_type = event.option.id
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("Select the type of item to create", classes="question")
+            with VerticalScroll(classes="checkboxes"):
+                yield OptionList(
+                    *[
+                        Option(prompt=human_name, id=codename)
+                        for codename, human_name
+                        in ITEM_TYPE_NAMES.items()
+                    ]
+                )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query(OptionList).first().focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            self.dismiss(self.selected_type)
+
+
 class ItemsPanel(Static):
     BINDINGS = [
         Binding("ctrl+n", "new_item", "New"),
@@ -429,6 +471,36 @@ class ItemsPanel(Static):
             db_connection=self.db_connection,
             rowid=self.selected_row_key.value,
         ))
+
+    @work
+    async def action_new_item(self):
+        item_type = await self.app.push_screen_wait(
+            ItemTypeSelectionScreen()
+        )
+        if item_type is None:
+            return
+        cur = self.db_connection.cursor()
+        i_rowid, i_type, i_fdata, i_creators = cur.execute(
+            """
+                insert into item (type, field_data, creators)
+                values (?, '{}', '{}')
+                returning rowid, type, field_data, creators
+            """,
+            (item_type, )
+        ).fetchone()
+        self.db_connection.commit()
+        dt = self.query_one("#items-dt", DataTable)
+        item = Item.from_triplet(
+            item_type=i_type,
+            field_data=json.loads(i_fdata),
+            creators=json.loads(i_creators),
+        )
+        dt.add_row(
+            ITEM_TYPE_NAMES[item.type.name],
+            item.field_data.get("title", ""),
+            str(item.get_main_creator() or ""),
+            key=str(i_rowid),
+        )
 
 
 class FieldsPanel(Static):

@@ -60,6 +60,13 @@ QuitConfirmScreen.modal-screen .modal-dialog {
     height: 11;
 }
 
+ItemCollectionScreen.modal-screen .checkboxes {
+    & Checkbox {
+        width: 100%;
+        content-align: left middle;
+    }
+}
+
 #panel-container {
     layout: grid;
     grid-size: 3;

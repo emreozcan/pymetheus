@@ -16,7 +16,7 @@ from textual.reactive import reactive
 from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import Header, Footer, DataTable, Label, Button, Tree, \
-    Placeholder, Static, Input
+    Placeholder, Static, Input, Checkbox
 from textual.widgets._data_table import RowKey
 from textual.widgets._tree import TreeNode
 
@@ -201,11 +201,77 @@ class CollectionsPanel(Tree):
         pass  # TODO.
 
 
+class ItemCollectionScreen(ModalScreen):
+    def __init__(self, db_connection: sqlite3.Connection, rowid: int):
+        super().__init__(classes="modal-screen")
+        self.db_connection = db_connection
+        self.rowid = rowid
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("Manage collections of item", classes="question")
+            with VerticalScroll(classes="checkboxes"):
+                cur = self.db_connection.cursor()
+                collections = cur.execute("""
+                    select name from collection
+                """).fetchall()
+
+                active_collections = cur.execute(
+                    """
+                        select c.name
+                        from collection_entry e
+                        join collection c on e.collection = c.rowid
+                        where e.item = ?
+                    """,
+                    (self.rowid, )
+                ).fetchall()
+
+                for collection_name, in collections:
+                    yield Checkbox(
+                        label=collection_name,
+                        value=(collection_name,) in active_collections,
+                        name=collection_name
+                    )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query(Checkbox).first().focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss()
+        elif event.button.id == "ok":
+            cur = self.db_connection.cursor()
+            cur.execute(
+                """
+                    delete from collection_entry
+                    where item = ?
+                """,
+                (self.rowid, )
+            )
+            for checkbox in self.query(Checkbox):
+                if checkbox.value:
+                    cur.execute(
+                        """
+                            insert into collection_entry (collection, item)
+                            select rowid, ? from collection
+                            where name = ?
+                        """,
+                        (self.rowid, checkbox.name)
+                    )
+            self.db_connection.commit()
+            cur.close()
+
+            self.dismiss()
+
+
 class ItemsPanel(Static):
     BINDINGS = [
         Binding("ctrl+n", "new_item", "New"),
         Binding("ctrl+d", "duplicate_item", "Duplicate"),
-        Binding("ctrl+s", "add_collection", "Collection..."),
+        Binding("ctrl+s", "set_collections", "Collection..."),
         Binding("delete", "delete_item", "Delete"),
     ]
 
@@ -353,6 +419,13 @@ class ItemsPanel(Static):
         print(dt.rows.keys())
         dt.remove_row(self.selected_row_key)
         dt.action_select_cursor()
+
+    @work
+    async def action_set_collections(self):
+        await self.app.push_screen_wait(ItemCollectionScreen(
+            db_connection=self.db_connection,
+            rowid=self.selected_row_key.value,
+        ))
 
 
 class FieldsPanel(Static):

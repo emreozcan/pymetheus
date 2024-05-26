@@ -62,7 +62,7 @@ RenameCollectionScreen.modal-screen .modal-dialog {
 }
 
 QuitConfirmScreen.modal-screen .modal-dialog {
-    height: 11;
+    height: 12;
 }
 
 DateFieldEditor.modal-screen .modal-dialog {
@@ -71,6 +71,10 @@ DateFieldEditor.modal-screen .modal-dialog {
 
 StandardFieldEditor.modal-screen .modal-dialog {
     height: 15;
+}
+
+NameEditor.modal-screen .modal-dialog {
+    min-height: 36;
 }
 
 OptionList {

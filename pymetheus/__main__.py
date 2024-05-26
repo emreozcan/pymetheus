@@ -418,7 +418,7 @@ class ItemsPanel(Static):
                     ITEM_TYPE_NAMES[item.type.name],
                     item.field_data.get("title", ""),
                     str(item.get_main_creator() or ""),
-                    key=i_rowid,
+                    key=str(i_rowid),
                 )
         if dt.rows:
             dt.move_cursor(row=0)
@@ -640,7 +640,7 @@ class NameEditor(ModalScreen[NameData | None]):
     def compose(self) -> ComposeResult:
         with Widget(classes="modal-dialog"):
             yield Label("Edit name", classes="question")
-            with ScrollableContainer(classes="modal-content"):
+            with VerticalScroll(classes="modal-content"):
                 yield Label("Family:")
                 yield Input(
                     value=self.initial.family,

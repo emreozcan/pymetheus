@@ -19,7 +19,7 @@ def split_date_field(field_value: str, /) -> CslDateFieldValue:
 
 
 def serialize_item(item: Item, /) -> dict:
-    """Serialize a PyMetheus item to CSL-JSON."""
+    """Serialize a pymetheus item to CSL-JSON."""
 
     text_fields: dict[CslFieldName, str] = {}
     date_fields: dict[CslFieldName, CslDateFieldValue] = {}

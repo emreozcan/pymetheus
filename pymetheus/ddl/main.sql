@@ -1,8 +1,5 @@
 create table item
 (
-    id integer
-        constraint item_pkey
-            primary key autoincrement,
     type text not null,
     field_data text not null,
     creators text not null
@@ -17,17 +14,14 @@ create table collection
 
 create table collection_entry
 (
-    id serial not null
-        constraint collection_entry_pkey
-            primary key,
-    collection name
+    collection integer
         not null
         constraint collection_entry_collection_id_fkey
-            references collection
+            references collection (rowid)
             on delete cascade,
     item integer
         not null
         constraint collection_entry_entry_id_fkey
-            references item
+            references item (rowid)
             on delete cascade
 );

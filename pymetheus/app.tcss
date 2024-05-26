@@ -31,15 +31,49 @@ QuitConfirmScreen {
 }
 
 CollectionsPanel {
-    padding: 1 1;
+    border: vkey $background;
 }
 
 ItemsPanel {
+    padding: 1 0;
     height: 100%;
+
+    #item-menu {
+        height: auto;
+
+        layout: grid;
+        grid-size: 1;
+        grid-columns: 1fr;
+
+        margin-bottom: 1;
+    }
+
+    #items-dt {
+        height: 100%;
+
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
 }
 
 FieldsPanel {
+    border: vkey $background;
     height: 100%;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    layout: grid;
+    grid-size: 1;
+    grid-rows: 1fr 1fr;
+
+    #fields-dt {
+        height: 100%;
+    }
+
+    #creators-dt {
+        height: 100%;
+    }
 }
 
 Header {

@@ -32,7 +32,7 @@ def open_library_at(path: Path, /) -> sqlite3.Connection:
 def get_connection_from_args(
         parsed_args: argparse.Namespace,
         /
-) -> sqlite3.Connection:
+) -> tuple[Path, sqlite3.Connection]:
     if not parsed_args.library:
         library_path = search_library_file_with_precedence(
             [
@@ -42,12 +42,12 @@ def get_connection_from_args(
         )
         if not library_path:
             library_path = get_default_library_path()
-            return create_library_at(library_path)
+            return library_path, create_library_at(library_path)
         else:
-            return open_library_at(library_path)
+            return library_path, open_library_at(library_path)
     else:
         library_path: Path = parsed_args.library
         if library_path.exists():
-            return open_library_at(library_path)
+            return library_path, open_library_at(library_path)
         else:
-            return create_library_at(library_path)
+            return library_path, create_library_at(library_path)

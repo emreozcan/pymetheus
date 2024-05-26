@@ -4,7 +4,8 @@ create table item
         constraint item_pkey
             primary key autoincrement,
     type text not null,
-    data text not null
+    field_data text not null,
+    creators text not null
 );
 
 create table collection

@@ -90,9 +90,9 @@ class CollectionsPanel(Tree):
 
     class Selected(Message):
         """Sent when the selected collection changes"""
-        def __init__(self, _id: str | None, /):
+        def __init__(self, rowid: int | None, /):
             super().__init__()
-            self.selected_collection_id = _id
+            self.rowid = rowid
 
     def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
         event.stop()
@@ -119,10 +119,10 @@ class CollectionsPanel(Tree):
     def on_mount(self):
         cur = self.db_connection.cursor()
         cols = cur.execute("""
-            select name from collection
+            select rowid, name from collection
         """).fetchall()
-        for col_name, in cols:
-            self.root.add_leaf(col_name, data=col_name)
+        for rowid, col_name in cols:
+            self.root.add_leaf(col_name, data=rowid)
         cur.close()
         self.root.expand()
         self.select_node(self.root)
@@ -137,7 +137,7 @@ class CollectionsPanel(Tree):
         cur.execute(
             """
                 delete from collection
-                where name = ?
+                where rowid = ?
             """,
             (node.data, )
         )
@@ -152,7 +152,9 @@ class CollectionsPanel(Tree):
         if not node or not node.data:
             return
 
-        new = await self.app.push_screen_wait(RenameCollectionScreen(node.data))
+        new = await self.app.push_screen_wait(
+            RenameCollectionScreen(node.label)
+        )
         if new is None:
             return
 
@@ -161,12 +163,11 @@ class CollectionsPanel(Tree):
             """
                 update collection
                 set name = ?
-                where name = ?
+                where rowid = ?
             """,
             (new, node.data)
         )
         self.db_connection.commit()
-        node.data = new
         node.label = new
 
     @work
@@ -186,15 +187,16 @@ class CollectionsPanel(Tree):
                 break
             counter += 1
 
-        cur.execute(
+        rowid, = cur.execute(
             """
                 insert into collection (name)
                 values (?)
+                returning rowid
             """,
             (new_name, )
-        )
+        ).fetchone()
         self.db_connection.commit()
-        self.root.add_leaf(new_name, data=new_name)
+        self.root.add_leaf(new_name, data=rowid)
 
     @work
     async def action_export_coll(self):
@@ -277,7 +279,7 @@ class ItemsPanel(Static):
 
     selected_row_key: reactive[RowKey | None] = reactive(None)
 
-    selected_collection: reactive[str | None] = reactive(None)
+    selected_collection_id: reactive[int | None] = reactive(None)
     search_string: reactive[str] = reactive("")
 
     class Selected(Message):
@@ -325,22 +327,22 @@ class ItemsPanel(Static):
         dt.add_column("Title", key="title")
         dt.add_column("Creator", key="creator")
 
-        self.watch(self, "selected_collection", self.refresh_dt)
+        self.watch(self, "selected_collection_id", self.refresh_dt)
         self.watch(self, "search_string", self.refresh_dt)
 
     def refresh_dt(self) -> None:
         dt = self.query_one("#items-dt", DataTable)
         dt.clear()
         cur = self.db_connection.cursor()
-        if self.selected_collection is not None:
+        if self.selected_collection_id is not None:
             items = cur.execute(
                 """
                     select item.rowid, item.type, item.field_data, item.creators
-                    from collection_entry
-                    join item on collection_entry.item = item.rowid
-                    where collection_entry.collection = ?
+                    from collection_entry entry
+                    join item on entry.item = item.rowid
+                    where entry.collection = ?
                 """,
-                (self.selected_collection, )
+                (self.selected_collection_id, )
             ).fetchall()
         else:
             items = cur.execute("""
@@ -418,6 +420,7 @@ class ItemsPanel(Static):
         dt = self.query_one("#items-dt", DataTable)
         print(dt.rows.keys())
         dt.remove_row(self.selected_row_key)
+        self.selected_row_key = None
         dt.action_select_cursor()
 
     @work
@@ -602,12 +605,12 @@ class PymetheusApp(App):
     ]
     ENABLE_COMMAND_PALETTE = False
 
-    selected_collection: reactive[str | None] = reactive(None)
+    selected_collection_id: reactive[str | None] = reactive(None)
     selected_item: reactive[int | None] = reactive(None)
 
     @on(CollectionsPanel.Selected)
     def on_collection_selected(self, event: CollectionsPanel.Selected):
-        self.selected_collection = event.selected_collection_id
+        self.selected_collection_id = event.rowid
 
     @on(ItemsPanel.Selected)
     def on_item_selected(self, event: ItemsPanel.Selected):
@@ -637,7 +640,7 @@ class PymetheusApp(App):
         with Horizontal(id="panel-container"):
             yield CollectionsPanel(self.db_connection)
             yield ItemsPanel(self.db_connection)\
-                .data_bind(PymetheusApp.selected_collection)
+                .data_bind(PymetheusApp.selected_collection_id)
             yield FieldsPanel(self.db_connection)\
                 .data_bind(PymetheusApp.selected_item)
         yield Footer()

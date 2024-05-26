@@ -17,6 +17,7 @@ from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import Header, Footer, DataTable, Label, Button, Tree, \
     Placeholder, Static, Input
+from textual.widgets._data_table import RowKey
 from textual.widgets._tree import TreeNode
 
 from .models_pymetheus import Item
@@ -195,6 +196,10 @@ class CollectionsPanel(Tree):
         self.db_connection.commit()
         self.root.add_leaf(new_name, data=new_name)
 
+    @work
+    async def action_export_coll(self):
+        pass  # TODO.
+
 
 class ItemsPanel(Static):
     BINDINGS = [
@@ -203,6 +208,8 @@ class ItemsPanel(Static):
         Binding("ctrl+s", "add_collection", "Collection..."),
         Binding("delete", "delete_item", "Delete"),
     ]
+
+    selected_row_key: reactive[RowKey | None] = reactive(None)
 
     selected_collection: reactive[str | None] = reactive(None)
     search_string: reactive[str] = reactive("")
@@ -235,8 +242,15 @@ class ItemsPanel(Static):
             self.search_string = event.value
 
     @on(DataTable.RowSelected)
-    def on_item_select(self, event: DataTable.RowSelected) -> None:
+    def on_select(self, event: DataTable.RowSelected) -> None:
         event.stop()
+        self.selected_row_key = event.row_key
+        self.post_message(self.Selected(event.row_key.value))
+
+    @on(DataTable.RowHighlighted)
+    def on_highlight(self, event: DataTable.RowHighlighted) -> None:
+        event.stop()
+        self.selected_row_key = event.row_key
         self.post_message(self.Selected(event.row_key.value))
 
     def on_mount(self) -> None:
@@ -292,6 +306,53 @@ class ItemsPanel(Static):
         if dt.rows:
             dt.move_cursor(row=0)
             dt.action_select_cursor()
+
+    def action_duplicate_item(self):
+        old_rowid = self.selected_row_key.value
+        cur = self.db_connection.cursor()
+        i_rowid, i_type, i_fdata, i_creators = cur.execute(
+            """
+                insert into item (type, field_data, creators)
+                select type, field_data, creators
+                from item
+                where rowid = ?
+                limit 1
+                returning rowid, type, field_data, creators
+            """,
+            (old_rowid, )
+        ).fetchone()
+        self.db_connection.commit()
+        dt = self.query_one("#items-dt", DataTable)
+        item = Item.from_triplet(
+            item_type=i_type,
+            field_data=json.loads(i_fdata),
+            creators=json.loads(i_creators),
+        )
+        dt.add_row(
+            ITEM_TYPE_NAMES[item.type.name],
+            item.field_data.get("title", ""),
+            str(item.get_main_creator() or ""),
+            key=str(i_rowid),
+        )
+
+    def action_delete_item(self):
+        if self.selected_row_key is None:
+            return
+
+        cur = self.db_connection.cursor()
+        cur.execute(
+            """
+                delete from item
+                where rowid = ?
+            """,
+            (self.selected_row_key.value, )
+        )
+        self.db_connection.commit()
+        cur.close()
+        dt = self.query_one("#items-dt", DataTable)
+        print(dt.rows.keys())
+        dt.remove_row(self.selected_row_key)
+        dt.action_select_cursor()
 
 
 class FieldsPanel(Static):

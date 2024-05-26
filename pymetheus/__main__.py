@@ -27,19 +27,54 @@ from textual.app import App, ComposeResult
 
 
 class QuitConfirmScreen(ModalScreen):
+    def __init__(self):
+        super().__init__(classes="modal-screen")
+
     def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("Are you sure you want to quit?", id="question"),
-            Button("Quit", variant="error", id="quit"),
-            Button("Cancel", variant="primary", id="cancel"),
-            id="quit-dialog",
-        )
+        with Widget(classes="modal-dialog"):
+            yield Label("Are you sure you want to quit?", classes="question")
+            yield Widget(classes="modal-content")
+            with Widget(classes="modal-buttons"):
+                yield Button("Quit", variant="error", id="quit")
+                yield Button("Cancel", id="cancel")
+
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "quit":
             self.app.exit()
         else:
             self.dismiss()
+
+
+class RenameCollectionScreen(ModalScreen[str | None]):
+    def __init__(self, initial_name: str):
+        super().__init__(classes="modal-screen")
+
+        self.initial_name = initial_name
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("New name for collection", classes="question")
+            with ScrollableContainer(classes="modal-content"):
+                yield Label("New name:")
+                yield Input(
+                    value=self.initial_name,
+                    id="new-name",
+                    placeholder="Collection name"
+                )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#new-name", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            new_name = self.query_one("#new-name", Input).value
+            self.dismiss(new_name)
 
 
 class CollectionsPanel(Tree):
@@ -58,8 +93,8 @@ class CollectionsPanel(Tree):
             super().__init__()
             self.selected_collection_id = _id
 
-    @on(Tree.NodeSelected)
-    def on_collection_selected(self, event: Tree.NodeSelected) -> None:
+    @on(Tree.NodeHighlighted)
+    def on_collection_selected(self, event: Tree.NodeHighlighted) -> None:
         event.stop()
         self.selected_node = event.node
         self.post_message(self.Selected(event.node.data))
@@ -107,6 +142,29 @@ class CollectionsPanel(Tree):
         self.root.expand()
         self.select_node(self.root)
         self.post_message(self.Selected(self.root.data))
+
+    @work
+    async def action_rename_coll(self):
+        node: TreeNode = self.selected_node
+        if not node or not node.data:
+            return
+
+        new = await self.app.push_screen_wait(RenameCollectionScreen(node.data))
+        if new is None:
+            return
+
+        cur = self.db_connection.cursor()
+        cur.execute(
+            """
+                update collection
+                set name = ?
+                where name = ?
+            """,
+            (new, node.data)
+        )
+        self.db_connection.commit()
+        node.data = new
+        node.label = new
 
 
 class ItemsPanel(Static):

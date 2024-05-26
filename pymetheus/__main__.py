@@ -467,7 +467,6 @@ class ItemsPanel(Static):
         self.db_connection.commit()
         cur.close()
         dt = self.query_one("#items-dt", DataTable)
-        print(dt.rows.keys())
         dt.remove_row(self.selected_row_key)
         self.selected_row_key = None
         dt.action_select_cursor()
@@ -544,7 +543,6 @@ class DateFieldEditor(ModalScreen[str | None]):
                 y, m, d = self.query_one("#new-date", Input).value.split("-")
                 y, m, d = int(y), int(m), int(d)
             except ValueError as e:
-                print(e)
                 self.app.notify(
                     "Invalid date format. Use YYYY-MM-DD.",
                     severity="error",
@@ -871,14 +869,11 @@ class FieldsPanel(Static):
                 return
             item: Item = self.item_object
             initial_value = item.field_data.get(self.selected_field_name, None)
-            print(f"{self.selected_field_name = }")
             if is_field_date(self.selected_field_name):
-                print("ok im waiting for a date value to come back now")
                 new_value = await self.app.push_screen_wait(
                     DateFieldEditor(initial_value)
                 )
             else:
-                print("ok im waiting for a standard value to come back now")
                 new_value = await self.app.push_screen_wait(
                     StandardFieldEditor(
                         initial_value,

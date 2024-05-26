@@ -93,8 +93,12 @@ class CollectionsPanel(Tree):
             super().__init__()
             self.selected_collection_id = _id
 
-    @on(Tree.NodeHighlighted)
-    def on_collection_selected(self, event: Tree.NodeHighlighted) -> None:
+    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        event.stop()
+        self.selected_node = event.node
+        self.post_message(self.Selected(event.node.data))
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         event.stop()
         self.selected_node = event.node
         self.post_message(self.Selected(event.node.data))
@@ -139,9 +143,7 @@ class CollectionsPanel(Tree):
         self.db_connection.commit()
         cur.close()
         node.remove()
-        self.root.expand()
-        self.select_node(self.root)
-        self.post_message(self.Selected(self.root.data))
+        self.action_select_cursor()
 
     @work
     async def action_rename_coll(self):
@@ -165,6 +167,33 @@ class CollectionsPanel(Tree):
         self.db_connection.commit()
         node.data = new
         node.label = new
+
+    @work
+    async def action_create_coll(self):
+        cur = self.db_connection.cursor()
+        counter = 1
+        while True:
+            new_name = f"Collection {counter}"
+            if not cur.execute(
+                """
+                    select 1
+                    from collection
+                    where name = ?
+                """,
+                (new_name, )
+            ).fetchone():
+                break
+            counter += 1
+
+        cur.execute(
+            """
+                insert into collection (name)
+                values (?)
+            """,
+            (new_name, )
+        )
+        self.db_connection.commit()
+        self.root.add_leaf(new_name, data=new_name)
 
 
 class ItemsPanel(Static):

@@ -120,6 +120,19 @@ class NameData:
             )
         )
 
+    def empty(self) -> bool:
+        return all(
+            value is None
+            for value in (
+                self.family,
+                self.given,
+                self.suffix,
+                self.dropping_particle,
+                self.non_dropping_particle,
+                self.literal,
+            )
+        )
+
 
 @dataclass
 class Item:

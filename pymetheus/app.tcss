@@ -28,7 +28,7 @@
             layout: grid;
             grid-size: 2;
             grid-columns: auto 1fr;
-            grid-gutter: 1 3;
+            grid-gutter: 0 3;
 
             padding-left: 1;
 
@@ -37,6 +37,10 @@
             & > * {
                 height: 3;
                 content-align: center middle;
+            }
+
+            .full-line {
+                column-span: 2;
             }
         }
 
@@ -61,11 +65,20 @@ QuitConfirmScreen.modal-screen .modal-dialog {
     height: 11;
 }
 
-ItemCollectionScreen.modal-screen .checkboxes {
-    & Checkbox {
-        width: 100%;
-        content-align: left middle;
-    }
+DateFieldEditor.modal-screen .modal-dialog {
+    height: 15;
+}
+
+StandardFieldEditor.modal-screen .modal-dialog {
+    height: 15;
+}
+
+OptionList {
+    border: none;
+}
+
+SelectionList {
+    border: none;
 }
 
 #panel-container {

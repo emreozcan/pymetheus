@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import sqlite3
 import sys
@@ -14,15 +15,18 @@ from textual.events import Focus
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen, ModalScreen
+from textual.validation import Validator, ValidationResult
 from textual.widget import Widget
 from textual.widgets import Header, Footer, DataTable, Label, Button, Tree, \
-    Placeholder, Static, Input, Checkbox, OptionList
+    Placeholder, Static, Input, Checkbox, OptionList, SelectionList
 from textual.widgets._data_table import RowKey
 from textual.widgets._option_list import Option
 from textual.widgets._tree import TreeNode
 
-from .models_pymetheus import Item
-from .zotero_csl_interop import ITEM_TYPE_NAMES, FIELD_NAMES, CREATOR_TYPE_NAMES
+from pymetheus.models_zotero import ItemType
+from .models_pymetheus import Item, NameData
+from .zotero_csl_interop import ITEM_TYPE_NAMES, FIELD_NAMES, \
+    CREATOR_TYPE_NAMES, is_field_standard, is_field_date
 from .db import get_connection_from_args
 
 from textual.app import App, ComposeResult
@@ -39,7 +43,6 @@ class QuitConfirmScreen(ModalScreen):
             with Widget(classes="modal-buttons"):
                 yield Button("Quit", variant="error", id="quit")
                 yield Button("Cancel", id="cancel")
-
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "quit":
@@ -91,6 +94,7 @@ class CollectionsPanel(Tree):
 
     class Selected(Message):
         """Sent when the selected collection changes"""
+
         def __init__(self, rowid: int | None, /):
             super().__init__()
             self.rowid = rowid
@@ -140,7 +144,7 @@ class CollectionsPanel(Tree):
                 delete from collection
                 where rowid = ?
             """,
-            (node.data, )
+            (node.data,)
         )
         self.db_connection.commit()
         cur.close()
@@ -178,12 +182,12 @@ class CollectionsPanel(Tree):
         while True:
             new_name = f"Collection {counter}"
             if not cur.execute(
-                """
+                    """
                     select 1
                     from collection
                     where name = ?
                 """,
-                (new_name, )
+                    (new_name,)
             ).fetchone():
                 break
             counter += 1
@@ -194,7 +198,7 @@ class CollectionsPanel(Tree):
                 values (?)
                 returning rowid
             """,
-            (new_name, )
+            (new_name,)
         ).fetchone()
         self.db_connection.commit()
         self.root.add_leaf(new_name, data=rowid)
@@ -205,10 +209,10 @@ class CollectionsPanel(Tree):
 
 
 class ItemCollectionScreen(ModalScreen):
-    def __init__(self, db_connection: sqlite3.Connection, rowid: int):
+    def __init__(self, db_connection: sqlite3.Connection, item_rowid: int):
         super().__init__(classes="modal-screen")
         self.db_connection = db_connection
-        self.rowid = rowid
+        self.item_rowid = item_rowid
 
     def compose(self) -> ComposeResult:
         with Widget(classes="modal-dialog"):
@@ -216,31 +220,35 @@ class ItemCollectionScreen(ModalScreen):
             with VerticalScroll(classes="checkboxes"):
                 cur = self.db_connection.cursor()
                 collections = cur.execute("""
-                    select name from collection
+                    select rowid, name from collection
                 """).fetchall()
 
-                active_collections = cur.execute(
+                active_collection_rowids = cur.execute(
                     """
-                        select c.name
+                        select c.rowid
                         from collection_entry e
                         join collection c on e.collection = c.rowid
                         where e.item = ?
                     """,
-                    (self.rowid, )
+                    (self.item_rowid,)
                 ).fetchall()
 
-                for collection_name, in collections:
-                    yield Checkbox(
-                        label=collection_name,
-                        value=(collection_name,) in active_collections,
-                        name=collection_name
-                    )
+                yield SelectionList(
+                    *[
+                        (
+                            col_name,
+                            col_rowid,
+                            (col_rowid,) in active_collection_rowids
+                        )
+                        for col_rowid, col_name in collections
+                    ]
+                )
             with Widget(classes="modal-buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
-        self.query(Checkbox).first().focus()
+        self.query(SelectionList).first().focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
@@ -252,18 +260,16 @@ class ItemCollectionScreen(ModalScreen):
                     delete from collection_entry
                     where item = ?
                 """,
-                (self.rowid, )
+                (self.item_rowid,)
             )
-            for checkbox in self.query(Checkbox):
-                if checkbox.value:
-                    cur.execute(
-                        """
-                            insert into collection_entry (collection, item)
-                            select rowid, ? from collection
-                            where name = ?
-                        """,
-                        (self.rowid, checkbox.name)
-                    )
+            for col_rowid in self.query_one(SelectionList).selected:
+                cur.execute(
+                    """
+                        insert into collection_entry (collection, item)
+                        values (?, ?)
+                    """,
+                    (col_rowid, self.item_rowid)
+                )
             self.db_connection.commit()
             cur.close()
 
@@ -326,6 +332,7 @@ class ItemsPanel(Static):
 
     class Selected(Message):
         """Sent when the selected item changes"""
+
         def __init__(self, rowid: str, /):
             super().__init__()
             self.rowid = rowid
@@ -384,7 +391,7 @@ class ItemsPanel(Static):
                     join item on entry.item = item.rowid
                     where entry.collection = ?
                 """,
-                (self.selected_collection_id, )
+                (self.selected_collection_id,)
             ).fetchall()
         else:
             items = cur.execute("""
@@ -404,8 +411,8 @@ class ItemsPanel(Static):
                 creators=json.loads(i_creators),
             )
             if (
-                (search_string is None)
-                or item.search(search_string, casefolded=True)
+                    (search_string is None)
+                    or item.search(search_string, casefolded=True)
             ):
                 dt.add_row(
                     ITEM_TYPE_NAMES[item.type.name],
@@ -429,7 +436,7 @@ class ItemsPanel(Static):
                 limit 1
                 returning rowid, type, field_data, creators
             """,
-            (old_rowid, )
+            (old_rowid,)
         ).fetchone()
         self.db_connection.commit()
         dt = self.query_one("#items-dt", DataTable)
@@ -455,7 +462,7 @@ class ItemsPanel(Static):
                 delete from item
                 where rowid = ?
             """,
-            (self.selected_row_key.value, )
+            (self.selected_row_key.value,)
         )
         self.db_connection.commit()
         cur.close()
@@ -469,7 +476,7 @@ class ItemsPanel(Static):
     async def action_set_collections(self):
         await self.app.push_screen_wait(ItemCollectionScreen(
             db_connection=self.db_connection,
-            rowid=self.selected_row_key.value,
+            item_rowid=self.selected_row_key.value,
         ))
 
     @work
@@ -486,7 +493,7 @@ class ItemsPanel(Static):
                 values (?, '{}', '{}')
                 returning rowid, type, field_data, creators
             """,
-            (item_type, )
+            (item_type,)
         ).fetchone()
         self.db_connection.commit()
         dt = self.query_one("#items-dt", DataTable)
@@ -503,6 +510,199 @@ class ItemsPanel(Static):
         )
 
 
+class DateFieldEditor(ModalScreen[str | None]):
+    def __init__(self, initial: str | None):
+        super().__init__(classes="modal-screen")
+        if initial:
+            self.y, self.m, self.d = tuple(int(x) for x in initial.split("-"))
+        else:
+            today = datetime.date.today()
+            self.y, self.m, self.d = today.year, today.month, today.day
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("Edit date", classes="question")
+            with ScrollableContainer(classes="modal-content"):
+                yield Label("Date:")
+                yield Input(
+                    value=f"{self.y:04d}-{self.m:02d}-{self.d:02d}",
+                    id="new-date",
+                    placeholder="YYYY-MM-DD",
+                )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#new-date", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            try:
+                y, m, d = self.query_one("#new-date", Input).value.split("-")
+                y, m, d = int(y), int(m), int(d)
+            except ValueError as e:
+                print(e)
+                self.app.notify(
+                    "Invalid date format. Use YYYY-MM-DD.",
+                    severity="error",
+                    timeout=5.0
+                )
+                self.dismiss(None)
+                return
+            try:
+                datetime.date(year=y, month=m, day=d)
+            except ValueError as e:
+                self.app.notify(str(e), severity="error", timeout=5.0)
+                self.dismiss(None)
+                return
+            self.dismiss(f"{y:04d}-{m:02d}-{d:02d}")
+
+
+class StandardFieldEditor(ModalScreen[str | None]):
+    def __init__(self, initial: str | None, field_name: str):
+        super().__init__(classes="modal-screen")
+        self.initial = initial
+        self.field_name = field_name
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label(f"Edit {self.field_name}", classes="question")
+            with ScrollableContainer(classes="modal-content"):
+                yield Label(f"{self.field_name}:")
+                yield Input(
+                    value=self.initial,
+                    id="new-value",
+                    placeholder=self.field_name,
+                )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#new-value", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            self.dismiss(self.query_one("#new-value", Input).value)
+
+
+class CreatorTypeSelectionScreen(ModalScreen[str | None]):
+    def __init__(self, item_type: ItemType):
+        super().__init__(classes="modal-screen")
+        self.item_type = item_type
+
+    selected_type: reactive[str | None] = reactive(None)
+
+    @on(OptionList.OptionHighlighted)
+    def highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        event.stop()
+        self.selected_type = event.option.id
+
+    @on(OptionList.OptionSelected)
+    def selected(self, event: OptionList.OptionSelected) -> None:
+        event.stop()
+        self.selected_type = event.option.id
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("Select the type of contributor to create",
+                        classes="question")
+            yield OptionList(
+                *[
+                    Option(prompt=CREATOR_TYPE_NAMES[codename], id=codename)
+                    for codename in self.item_type.creator_types
+                ]
+            )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query(OptionList).first().focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            self.dismiss(self.selected_type)
+
+
+class NameEditor(ModalScreen[NameData | None]):
+    def __init__(self, initial: NameData):
+        super().__init__(classes="modal-screen")
+        self.initial = initial
+
+    def compose(self) -> ComposeResult:
+        with Widget(classes="modal-dialog"):
+            yield Label("Edit name", classes="question")
+            with ScrollableContainer(classes="modal-content"):
+                yield Label("Family:")
+                yield Input(
+                    value=self.initial.family,
+                    id="new-family",
+                    placeholder="Family Name",
+                )
+                yield Label("Given:")
+                yield Input(
+                    value=self.initial.given,
+                    id="new-given",
+                    placeholder="Given Name",
+                )
+                yield Label("Suffix:")
+                yield Input(
+                    value=self.initial.suffix,
+                    id="new-suffix",
+                    placeholder="Suffix",
+                )
+                yield Label("Dropping:")
+                yield Input(
+                    value=self.initial.dropping_particle,
+                    id="new-dropping-particle",
+                    placeholder="Dropping Particle",
+                )
+                yield Label("Non-Dropping:")
+                yield Input(
+                    value=self.initial.non_dropping_particle,
+                    id="new-non-dropping-particle",
+                    placeholder="Non-Dropping Particle",
+                )
+                yield Label("Literal:")
+                yield Input(
+                    value=self.initial.literal,
+                    id="new-literal",
+                    placeholder="Literal",
+                )
+            with Widget(classes="modal-buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#new-family", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        elif event.button.id == "ok":
+            new = NameData(
+                family=self.query_one("#new-family", Input).value,
+                given=self.query_one("#new-given", Input).value,
+                suffix=self.query_one("#new-suffix", Input).value,
+                dropping_particle=(
+                    self.query_one("#new-dropping-particle", Input).value
+                ),
+                non_dropping_particle=(
+                    self.query_one("#new-non-dropping-particle", Input).value
+                ),
+                literal=self.query_one("#new-literal", Input).value,
+            )
+            self.dismiss(new)
+
+
 class FieldsPanel(Static):
     BINDINGS = [
         Binding("ctrl+n", "add_creator", "Add Creator"),
@@ -510,7 +710,7 @@ class FieldsPanel(Static):
         Binding("delete", "clear_field", "Clear"),
     ]
 
-    selected_item: reactive[int | None] = reactive(None)
+    selected_item_rowid: reactive[int | None] = reactive(None)
     item_object: reactive[Item | None] = reactive(None)
 
     selected_field_name: reactive[str | None] = reactive(None)
@@ -541,7 +741,7 @@ class FieldsPanel(Static):
         creators.add_column("Contribution", key="type")
         creators.add_column("Name", key="name")
 
-    def watch_selected_item(self, value: int | None) -> None:
+    def watch_selected_item_rowid(self, value: int | None) -> None:
         field_dt = self.query_one("#fields-dt", DataTable)
         field_dt.clear()
         creator_dt = self.query_one("#creators-dt", DataTable)
@@ -555,7 +755,7 @@ class FieldsPanel(Static):
                 from item
                 where rowid = ?
             """,
-            (value, )
+            (value,)
         ).fetchone()
         cur.close()
         if data is None:
@@ -576,7 +776,7 @@ class FieldsPanel(Static):
             field_dt.add_row(
                 FIELD_NAMES[any_field.name],
                 item.field_data.get(any_field.name, None),
-                key=any_field.name
+                key=any_field.base_field
             )
         if field_dt.rows:
             field_dt.move_cursor(row=0)
@@ -604,7 +804,6 @@ class FieldsPanel(Static):
             creator_type, index = event.row_key.value.split(".")
             self.selected_creator = (creator_type, int(index))
 
-
     def update_item_wo_commit(self, item: Item, rowid: int) -> None:
         item_dict = item.as_dict()
 
@@ -623,7 +822,7 @@ class FieldsPanel(Static):
         )
 
     async def action_clear_field(self) -> None:
-        if self.selected_item is None:
+        if self.selected_item_rowid is None:
             return
         if self.item_object is None:
             return
@@ -639,9 +838,9 @@ class FieldsPanel(Static):
                 await fields.recompose()
                 return
             del item.field_data[self.selected_field_name]
-            self.update_item_wo_commit(item, self.selected_item)
+            self.update_item_wo_commit(item, self.selected_item_rowid)
             self.db_connection.commit()
-            fields.remove_row(self.selected_field_name)
+            fields.update_cell(self.selected_field_name, "value", None)
             return
         elif creators.has_focus:
             item: Item = self.item_object
@@ -652,10 +851,106 @@ class FieldsPanel(Static):
             del item.creators[sel_c_type][sel_c_index]
             if not item.creators[sel_c_type]:
                 del item.creators[sel_c_type]
-            self.update_item_wo_commit(item, self.selected_item)
+            self.update_item_wo_commit(item, self.selected_item_rowid)
             self.db_connection.commit()
             creators.remove_row(f"{sel_c_type}.{sel_c_index}")
             return
+
+    @work
+    async def action_edit_field(self) -> None:
+        if self.selected_item_rowid is None:
+            return
+        if self.item_object is None:
+            return
+
+        fields = self.query_one("#fields-dt", DataTable)
+        creators = self.query_one("#creators-dt", DataTable)
+
+        if fields.has_focus:
+            if self.selected_field_name == "itemType":
+                return
+            item: Item = self.item_object
+            initial_value = item.field_data.get(self.selected_field_name, None)
+            print(f"{self.selected_field_name = }")
+            if is_field_date(self.selected_field_name):
+                print("ok im waiting for a date value to come back now")
+                new_value = await self.app.push_screen_wait(
+                    DateFieldEditor(initial_value)
+                )
+            else:
+                print("ok im waiting for a standard value to come back now")
+                new_value = await self.app.push_screen_wait(
+                    StandardFieldEditor(
+                        initial_value,
+                        fields.get_cell(self.selected_field_name, "field")
+                    )
+                )
+            if new_value is None:
+                return
+            item.field_data[self.selected_field_name] = new_value
+            self.update_item_wo_commit(item, self.selected_item_rowid)
+            self.db_connection.commit()
+            fields.update_cell(
+                self.selected_field_name,
+                "value",
+                new_value
+            )
+            return
+        elif creators.has_focus:
+            item: Item = self.item_object
+            sel_c_type, sel_c_index = self.selected_creator
+            if sel_c_type not in item.creators or not item.creators[sel_c_type]:
+                return
+            initial_value = item.creators[sel_c_type][sel_c_index]
+            new_value = await self.app.push_screen_wait(
+                NameEditor(
+                    initial_value,
+                )
+            )
+            if new_value is None:
+                return
+            if new_value.empty():
+                del item.creators[sel_c_type][sel_c_index]
+                if not item.creators[sel_c_type]:
+                    del item.creators[sel_c_type]
+                self.update_item_wo_commit(item, self.selected_item_rowid)
+                self.db_connection.commit()
+                creators.remove_row(f"{sel_c_type}.{sel_c_index}")
+                return
+            item.creators[sel_c_type][sel_c_index] = new_value
+            self.update_item_wo_commit(item, self.selected_item_rowid)
+            self.db_connection.commit()
+            creators.update_cell(
+                f"{sel_c_type}.{sel_c_index}",
+                "name",
+                str(new_value)
+            )
+            return
+
+    @work
+    async def action_add_creator(self) -> None:
+        if self.selected_item_rowid is None:
+            return
+        if self.item_object is None:
+            return
+
+        creators = self.query_one("#creators-dt", DataTable)
+        item: Item = self.item_object
+        creator_type = await self.app.push_screen_wait(
+            CreatorTypeSelectionScreen(item.type)
+        )
+        if creator_type is None:
+            return
+        if creator_type not in item.creators:
+            item.creators[creator_type] = []
+        item.creators[creator_type].append(NameData())
+        self.update_item_wo_commit(item, self.selected_item_rowid)
+        self.db_connection.commit()
+        creators.add_row(
+            CREATOR_TYPE_NAMES[creator_type],
+            "",
+            key=f"{creator_type}.{len(item.creators[creator_type]) - 1}"
+        )
 
 
 class PymetheusApp(App):
@@ -678,7 +973,7 @@ class PymetheusApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     selected_collection_id: reactive[str | None] = reactive(None)
-    selected_item: reactive[int | None] = reactive(None)
+    selected_item_rowid: reactive[int | None] = reactive(None)
 
     @on(CollectionsPanel.Selected)
     def on_collection_selected(self, event: CollectionsPanel.Selected):
@@ -687,9 +982,9 @@ class PymetheusApp(App):
     @on(ItemsPanel.Selected)
     def on_item_selected(self, event: ItemsPanel.Selected):
         if event.rowid is not None:
-            self.selected_item = int(event.rowid)
+            self.selected_item_rowid = int(event.rowid)
         else:
-            self.selected_item = None
+            self.selected_item_rowid = None
 
     def __init__(self):
         super().__init__()
@@ -711,10 +1006,10 @@ class PymetheusApp(App):
         yield Header()
         with Horizontal(id="panel-container"):
             yield CollectionsPanel(self.db_connection)
-            yield ItemsPanel(self.db_connection)\
+            yield ItemsPanel(self.db_connection) \
                 .data_bind(PymetheusApp.selected_collection_id)
-            yield FieldsPanel(self.db_connection)\
-                .data_bind(PymetheusApp.selected_item)
+            yield FieldsPanel(self.db_connection) \
+                .data_bind(PymetheusApp.selected_item_rowid)
         yield Footer()
 
     def on_mount(self) -> None:

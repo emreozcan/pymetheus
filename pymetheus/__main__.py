@@ -188,6 +188,10 @@ class FieldsPanel(Static):
     ]
 
     selected_item: reactive[int | None] = reactive(None)
+    item_object: reactive[Item | None] = reactive(None)
+
+    selected_field_name: reactive[str | None] = reactive(None)
+    selected_creator: reactive[tuple[str, int] | None] = reactive(None)
 
     def __init__(self, db_connection: sqlite3.Connection):
         super().__init__()
@@ -239,6 +243,7 @@ class FieldsPanel(Static):
             field_data=json.loads(i_fdata),
             creators=json.loads(i_creators),
         )
+        self.item_object = item
         field_dt.add_row(
             FIELD_NAMES["itemType"],
             ITEM_TYPE_NAMES[item.type.name],
@@ -250,6 +255,9 @@ class FieldsPanel(Static):
                 item.field_data.get(any_field.name, None),
                 key=any_field.name
             )
+        if field_dt.rows:
+            field_dt.move_cursor(row=0)
+            field_dt.action_select_cursor()
         for creator_type in item.type.creator_types:
             if creator_type in item.creators:
                 for i, creator in enumerate(item.creators[creator_type]):
@@ -258,6 +266,73 @@ class FieldsPanel(Static):
                         str(creator),
                         key=f"{creator_type}.{i}"
                     )
+        if creator_dt.rows:
+            creator_dt.move_cursor(row=0)
+            creator_dt.action_select_cursor()
+
+    @on(DataTable.RowHighlighted)
+    def on_dt_row_highlight(self, event: DataTable.RowHighlighted):
+        event.stop()
+        fields = self.query_one("#fields-dt", DataTable)
+        creators = self.query_one("#creators-dt", DataTable)
+        if event.data_table == fields:
+            self.selected_field_name = event.row_key.value
+        elif event.data_table == creators:
+            creator_type, index = event.row_key.value.split(".")
+            self.selected_creator = (creator_type, int(index))
+
+
+    def update_item_wo_commit(self, item: Item, rowid: int) -> None:
+        item_dict = item.as_dict()
+
+        self.db_connection.execute(
+            """
+                update item
+                set type = ?, field_data = ?, creators = ?
+                where rowid = ?
+            """,
+            (
+                item_dict["type"],
+                json.dumps(item_dict["field_data"], ensure_ascii=False),
+                json.dumps(item_dict["creators"], ensure_ascii=False),
+                rowid,
+            )
+        )
+
+    async def action_clear_field(self) -> None:
+        if self.selected_item is None:
+            return
+        if self.item_object is None:
+            return
+
+        fields = self.query_one("#fields-dt", DataTable)
+        creators = self.query_one("#creators-dt", DataTable)
+
+        if fields.has_focus:
+            if self.selected_field_name == "itemType":
+                return
+            item: Item = self.item_object
+            if self.selected_field_name not in item.field_data:
+                await fields.recompose()
+                return
+            del item.field_data[self.selected_field_name]
+            self.update_item_wo_commit(item, self.selected_item)
+            self.db_connection.commit()
+            fields.remove_row(self.selected_field_name)
+            return
+        elif creators.has_focus:
+            item: Item = self.item_object
+            sel_c_type, sel_c_index = self.selected_creator
+            if sel_c_type not in item.creators or not item.creators[sel_c_type]:
+                await creators.recompose()
+                return
+            del item.creators[sel_c_type][sel_c_index]
+            if not item.creators[sel_c_type]:
+                del item.creators[sel_c_type]
+            self.update_item_wo_commit(item, self.selected_item)
+            self.db_connection.commit()
+            creators.remove_row(f"{sel_c_type}.{sel_c_index}")
+            return
 
 
 class PymetheusApp(App):

@@ -134,8 +134,8 @@ class Item:
             "type": self.type.name,
             "field_data": self.field_data,
             "creators": {
-                creator_type.name: [name_data.as_dict() for name_data in name_data_list]
-                for creator_type, name_data_list in self.creators.items()
+                c_type: [nd.as_dict() for nd in nd_list]
+                for c_type, nd_list in self.creators.items()
             }
         }
 

@@ -92,7 +92,7 @@ class CollectionsPanel(Tree):
             return
 
         new = await self.app.push_screen_wait(
-            RenameCollectionScreen(node.label)
+            RenameCollectionScreen(str(node.label))
         )
         if new is None:
             return

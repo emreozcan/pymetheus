@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from textual import on, work
@@ -10,6 +11,9 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Tree, Label, Input, Button
 from textual.widgets._tree import TreeNode
+
+from pymetheus.citeproc_serializer import serialize_item
+from pymetheus.models_pymetheus import Item
 
 
 class CollectionsPanel(Tree):
@@ -135,7 +139,51 @@ class CollectionsPanel(Tree):
 
     @work
     async def action_export_coll(self):
-        pass  # TODO.
+        node: TreeNode = self.selected_node
+        if not node or not node.data:
+            return
+
+        ids_to_items = {}
+        cur = self.db_connection.cursor()
+        items = cur.execute(
+            """
+                select item.rowid, item.type, item.field_data, item.creators
+                from item
+                join collection_entry entry on item.rowid = entry.item
+                where entry.collection = ?
+            """,
+            (node.data,)
+        ).fetchall()
+        cur.close()
+        for i_rowid, i_type, i_fdata, i_creators in items:
+            item = Item.from_triplet(
+                item_type=i_type,
+                field_data=json.loads(i_fdata),
+                creators=json.loads(i_creators)
+            )
+            item_bibid = item.try_to_generate_id()
+            if not item_bibid:
+                item_bibid = f"item{i_rowid}"
+            if item_bibid in ids_to_items:
+                counter = 1
+                while True:
+                    new_bibid = f"{item_bibid}_{counter}"
+                    if new_bibid not in ids_to_items:
+                        item_bibid = new_bibid
+                        break
+                    counter += 1
+            ids_to_items[item_bibid] = item
+        serialized_items = []
+        for bibid, item in ids_to_items.items():
+            item_dict = serialize_item(item)
+            item_dict["id"] = bibid
+            serialized_items.append(item_dict)
+        with open(f"{node.label}.json", "w") as f:
+            json.dump(serialized_items, f, indent=4, ensure_ascii=False)
+        self.app.notify(
+            f"Collection {node.label} exported to {node.label}.json",
+            timeout=10.0,
+        )
 
 
 class RenameCollectionScreen(ModalScreen[str | None]):

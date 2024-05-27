@@ -516,6 +516,8 @@ def zotero_creator_type_to(name: ZoteroCreatorTypeName, to: DataFormat) -> str:
 
 
 def is_field_date(name: ZoteroFieldName) -> bool:
+    if name not in FIELD_ZOTERO_CSL:
+        return False
     return FIELD_ZOTERO_CSL[name] in [
         "accessed",
         "issued",
@@ -524,6 +526,8 @@ def is_field_date(name: ZoteroFieldName) -> bool:
 
 
 def is_field_name(name: ZoteroFieldName) -> bool:
+    if name not in FIELD_ZOTERO_CSL:
+        return False
     return FIELD_ZOTERO_CSL[name] in [
         "author",
         "collection-editor",

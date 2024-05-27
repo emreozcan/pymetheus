@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from typing import Self
 
 from .models_zotero import ItemType, ITEM_TYPES
-from .zotero_csl_interop import ZoteroFieldName, ZoteroCreatorTypeName
+from .zotero_csl_interop import ZoteroFieldName, ZoteroCreatorTypeName, \
+    is_field_date
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,20 @@ class NameData:
             )
 
     def __str__(self):
-        return f"{self.given} {self.family}"
+        if self.literal:
+            return self.literal
+        parts = []
+        if self.dropping_particle:
+            parts.append(self.dropping_particle)
+        if self.given:
+            parts.append(self.given)
+        if self.non_dropping_particle:
+            parts.append(self.non_dropping_particle)
+        if self.family:
+            parts.append(self.family)
+        if self.suffix:
+            parts.append(self.suffix)
+        return " ".join(parts)
 
     def as_dict(self) -> dict:
         new_obj = {}
@@ -215,3 +229,20 @@ class Item:
                 if name_data.search(query, casefolded=casefolded):
                     return True
         return False
+
+    def try_to_generate_id(self) -> str | None:
+        parts = []
+        main_creator = self.get_main_creator()
+        if main_creator is not None:
+            parts.append(main_creator.family)
+        date_fields = [
+            x
+            for x in self.type.fields
+            if is_field_date(x.base_field)
+        ]
+        for field in date_fields:
+            if field in self.field_data:
+                parts.append(self.field_data[field])
+        if parts:
+            return "_".join(parts)
+        return None

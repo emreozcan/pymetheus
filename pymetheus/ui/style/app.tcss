@@ -58,7 +58,7 @@
 }
 
 RenameCollectionScreen.modal-screen .modal-dialog {
-    height: 12;
+    height: 15;
 }
 
 QuitConfirmScreen.modal-screen .modal-dialog {

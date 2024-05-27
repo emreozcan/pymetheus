@@ -22,7 +22,7 @@ def serialize_item(item: Item, /) -> dict:
     """Serialize a pymetheus item to CSL-JSON."""
 
     text_fields: dict[CslFieldName, str] = {}
-    date_fields: dict[CslFieldName, CslDateFieldValue] = {}
+    date_fields: dict[CslFieldName, dict[str, CslDateFieldValue]] = {}
     name_fields: dict[CslFieldName, list[dict[str, str]]] = {}
 
     for zotero_field_name, field_value in item.field_data.items():
@@ -31,7 +31,9 @@ def serialize_item(item: Item, /) -> dict:
         if field_type == FieldType.STANDARD:
             text_fields[csl_field_name] = field_value
         elif field_type == FieldType.DATE:
-            date_fields[csl_field_name] = split_date_field(field_value)
+            date_fields[csl_field_name] = {
+                "date-parts": split_date_field(field_value)
+            }
         elif field_type == FieldType.NAME:
             raise ValueError(f"Unexpected name field: {csl_field_name}")
         else:

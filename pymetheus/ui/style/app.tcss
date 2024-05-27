@@ -126,7 +126,7 @@ FieldsPanel {
 
     layout: grid;
     grid-size: 1;
-    grid-rows: 1fr 1fr;
+    grid-rows: 2fr 1fr;
 
     #fields-dt {
         height: 100%;

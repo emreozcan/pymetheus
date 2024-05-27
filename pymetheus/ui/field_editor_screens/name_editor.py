@@ -16,11 +16,11 @@ class NameEditor(ModalScreen[NameData | None]):
         with Widget(classes="modal-dialog"):
             yield Label("Edit name", classes="question")
             with VerticalScroll(classes="modal-content"):
-                yield Label("Family:")
+                yield Label("Dropping:")
                 yield Input(
-                    value=self.initial.family,
-                    id="new-family",
-                    placeholder="Family Name",
+                    value=self.initial.dropping_particle,
+                    id="new-dropping-particle",
+                    placeholder="Dropping Particle",
                 )
                 yield Label("Given:")
                 yield Input(
@@ -28,23 +28,23 @@ class NameEditor(ModalScreen[NameData | None]):
                     id="new-given",
                     placeholder="Given Name",
                 )
-                yield Label("Suffix:")
-                yield Input(
-                    value=self.initial.suffix,
-                    id="new-suffix",
-                    placeholder="Suffix",
-                )
-                yield Label("Dropping:")
-                yield Input(
-                    value=self.initial.dropping_particle,
-                    id="new-dropping-particle",
-                    placeholder="Dropping Particle",
-                )
                 yield Label("Non-Dropping:")
                 yield Input(
                     value=self.initial.non_dropping_particle,
                     id="new-non-dropping-particle",
                     placeholder="Non-Dropping Particle",
+                )
+                yield Label("Family:")
+                yield Input(
+                    value=self.initial.family,
+                    id="new-family",
+                    placeholder="Family Name",
+                )
+                yield Label("Suffix:")
+                yield Input(
+                    value=self.initial.suffix,
+                    id="new-suffix",
+                    placeholder="Suffix",
                 )
                 yield Label("Literal:")
                 yield Input(
@@ -57,7 +57,7 @@ class NameEditor(ModalScreen[NameData | None]):
                 yield Button("Cancel", id="cancel")
 
     def on_mount(self) -> None:
-        self.query_one("#new-family", Input).focus()
+        self.query_one("#new-given", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":

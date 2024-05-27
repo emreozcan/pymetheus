@@ -75,6 +75,7 @@ StandardFieldEditor.modal-screen .modal-dialog {
 
 NameEditor.modal-screen .modal-dialog {
     min-height: 36;
+    height: 0;
 }
 
 OptionList {
